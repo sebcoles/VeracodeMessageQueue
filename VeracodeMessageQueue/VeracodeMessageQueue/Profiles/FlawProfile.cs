@@ -1,10 +1,7 @@
 ﻿using AutoMapper;
 using System;
-using System.Collections.Generic;
-using System.Text;
 using VeracodeMessageQueue.Models;
 using VeracodeService.Models;
-using VeraData.DataAccess;
 
 namespace VeraData.Profiles
 {
