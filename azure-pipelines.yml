@@ -46,7 +46,7 @@ steps:
   
 - task: GitHubRelease@1
   inputs:
-    gitHubConnection: 'sebcoles'
+    gitHubConnection: 'sebcoles2'
     repositoryName: 'sebcoles/VeracodeMessageQueue'
     action: 'create'
     target: '$(Build.SourceVersion)'
