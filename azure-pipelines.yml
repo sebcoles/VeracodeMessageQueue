@@ -14,7 +14,7 @@ variables:
 steps:
 - task: DotNetCoreCLI@2
   inputs:
-    projects: '**/*Console.csproj'
+    projects: '**/*.csproj'
     command: 'restore'
     includeNuGetOrg: true
 
