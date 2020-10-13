@@ -1,5 +1,4 @@
 ﻿using CommandLine;
-using Microsoft.Azure.ServiceBus;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
@@ -7,14 +6,13 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 using VeracodeMessageQueue.MessagingService;
 using VeracodeMessageQueue.Models;
 using VeracodeMessageQueue.Profiles;
 using VeracodeMessageQueue.Storage;
 using VeracodeService;
 using AutoMapper;
+using Microsoft.EntityFrameworkCore;
 
 namespace VeracodeMessageQueue
 {
@@ -34,6 +32,10 @@ namespace VeracodeMessageQueue
                 .Build();
 
             var serviceCollection = new ServiceCollection();
+            var connection = Configuration.GetConnectionString("DefaultConnection");
+            serviceCollection.AddDbContext<ApplicationDbContext>
+                (options => options.UseSqlServer(connection));
+
             serviceCollection.AddTransient(options => Options.Create(
                 VeracodeFileHelper.GetConfiguration(Configuration.GetValue<string>("VeracodeFileLocation"))));
             serviceCollection.Configure<EventGridConfiguration>(options => Configuration.GetSection("ServiceBusConfiguration").Bind(options));
@@ -55,18 +57,22 @@ namespace VeracodeMessageQueue
 
         static int Run(RunOptions options)
         {
+            Console.WriteLine($"Starting...");
             var messageService = _serviceProvider.GetService<IMessageService>();
             var veracodeRepository = _serviceProvider.GetService<IVeracodeRepository>();
             var myAppRepo = _serviceProvider.GetService<IGenericRepository<App>>();
             var myBuildRepo = _serviceProvider.GetService<IGenericRepository<Build>>();
             var myFlawRepo = _serviceProvider.GetService<IGenericRepository<Flaw>>();
 
-
             if (options.All)
+            {
+                Console.WriteLine($"Running against all apps available.");
                 _appIds = veracodeRepository.GetAllApps()
                     .Select(x => x.app_id.ToString()).ToArray();
+            } else {
+                Console.WriteLine($"Running against apps in configuration.");
+            }
 
-            // check for app events
             AppEvents();
 
             foreach (var appId in _appIds)
@@ -87,6 +93,8 @@ namespace VeracodeMessageQueue
 
         private static void AppEvents()
         {
+            Console.WriteLine($"Checking for App Events.");
+
             var veracodeRepository = _serviceProvider.GetService<IVeracodeRepository>();
             var myAppRepo = _serviceProvider.GetService<IGenericRepository<App>>();
             var messageService = _serviceProvider.GetService<IMessageService>();
@@ -100,7 +108,8 @@ namespace VeracodeMessageQueue
             foreach (var appId in removedAppsIds)
             {
                 var app = myAppRepo.GetAll().SingleOrDefault(x => x.Id == appId);
-                messageService.SendMessage(MessageTypes.AppEvent, $"The application {app.Name} with ID {appId} was deleted from Veracode.");
+                Console.WriteLine($"The application {app.Name} with ID {appId} was deleted from Veracode.");
+                messageService.SendMessage(MessageTypes.AppEvent, $"The application {app.Name} with ID {appId} was deleted from Veracode.", app);
                 myAppRepo.Delete(app);
             }
 
@@ -108,13 +117,17 @@ namespace VeracodeMessageQueue
             foreach (var appId in addedAppsIds)
             {
                 var app = veracodeRepository.GetAppDetail(appId);
-                messageService.SendMessage(MessageTypes.AppEvent, $"The application {app.application[0].app_name} with ID {appId} was created in Veracode.");
+                Console.WriteLine($"The application {app.application[0].app_name} with ID {appId} was created in Veracode.");
+                messageService.SendMessage(MessageTypes.AppEvent, $"The application {app.application[0].app_name} with ID {appId} was created in Veracode.", app);
                 myAppRepo.Create(new App { Id = appId, Name = app.application[0].app_name });
             }
+
+            Console.WriteLine($"Finished App Events.");
         }
 
         private static string[] BuildEvents(string appId)
         {
+            Console.WriteLine($"Checking for Build Events.");
             var veracodeRepository = _serviceProvider.GetService<IVeracodeRepository>();
             var myBuildRepo = _serviceProvider.GetService<IGenericRepository<Build>>();
             var messageService = _serviceProvider.GetService<IMessageService>();
@@ -133,7 +146,8 @@ namespace VeracodeMessageQueue
             foreach (var buildId in removedBuildIds)
             {
                 var build = myBuildRepo.GetAll().SingleOrDefault(x => x.Id == buildId);
-                messageService.SendMessage(MessageTypes.BuildEvent, $"The build {build.Name} with ID {build.Id} was deleted from Veracode.");
+                Console.WriteLine($"The build {build.Name} with ID {build.Id} was deleted from Veracode.");
+                messageService.SendMessage(MessageTypes.BuildEvent, $"The build {build.Name} with ID {build.Id} was deleted from Veracode.", build);
                 myBuildRepo.Delete(build);
             }
 
@@ -141,7 +155,8 @@ namespace VeracodeMessageQueue
             foreach (var buildId in addedBuildIds)
             {
                 var build = veracodeRepository.GetBuildDetail(appId, buildId);
-                messageService.SendMessage(MessageTypes.BuildEvent, $"The build {build.build.version} with ID {build.build_id} was created from Veracode.");
+                Console.WriteLine($"The build {build.build.version} with ID {build.build_id} was created from Veracode.");
+                messageService.SendMessage(MessageTypes.BuildEvent, $"The build {build.build.version} with ID {build.build_id} was created from Veracode.", build);
                 myBuildRepo.Create(new Build { Id = $"{build.build_id}", AppId = appId, Name = build.build.version, Status = VeracodeEnumConverter.Convert(build.build.analysis_unit[0].status) });
             }
 
@@ -153,11 +168,12 @@ namespace VeracodeMessageQueue
                 if(VeracodeEnumConverter.Convert(build.build.analysis_unit[0].status) != myBuild.Status)
                 {
                     myBuild.Status = VeracodeEnumConverter.Convert(build.build.analysis_unit[0].status);
-                    messageService.SendMessage(MessageTypes.BuildEvent, $"The build {build.build.version} with ID {build.build_id} status has been updated to {myBuild.Status}.");
+                    Console.WriteLine($"The build {build.build.version} with ID {build.build_id} status has been updated to {myBuild.Status}.");
+                    messageService.SendMessage(MessageTypes.BuildEvent, $"The build {build.build.version} with ID {build.build_id} status has been updated to {myBuild.Status}.", myBuild);
                     myBuildRepo.Update(myBuild);
                 }
             }
-
+            Console.WriteLine($"Finished Build Events.");
             return buildsToUpdate.ToArray();
         }
 

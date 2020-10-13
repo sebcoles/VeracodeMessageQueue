@@ -1,4 +1,4 @@
-﻿using Microsoft.Azure.ServiceBus;
+﻿using DocumentFormat.OpenXml.Drawing.Charts;
 using Microsoft.Extensions.Options;
 using Newtonsoft.Json;
 using System;
@@ -12,7 +12,7 @@ namespace VeracodeMessageQueue
 {
     public interface IMessageService
     {
-        void SendMessage(MessageTypes type, string message);
+        void SendMessage(MessageTypes type, string message, object entity);
     }
 
     public class MessageService : IMessageService
@@ -24,53 +24,60 @@ namespace VeracodeMessageQueue
             _config = options.Value;
         }
 
-        public void SendMessage(MessageTypes type, string message)
+        public void SendMessage(MessageTypes type, string message, object entity)
         {
             switch (type)
             {
                 case MessageTypes.AppEvent:
-                    _ = SendMessagesAsync("AppEvent",  message);
+                    SendMessages("AppEvent",  message, entity);
                     break;
 
                 case MessageTypes.BuildEvent:
-                    _ = SendMessagesAsync("BuildEvent", message);
+                    SendMessages("BuildEvent", message, entity);
                     break;
 
                 case MessageTypes.MitigationEvent:
-                    _ = SendMessagesAsync("MitigationEvent", message);
+                    SendMessages("MitigationEvent", message, entity);
                     break;
 
                 case MessageTypes.FlawEvent:
-                    _ = SendMessagesAsync("FlawEvent", message);
+                    SendMessages("FlawEvent", message, entity);
                     break;
             }
         }
-        private async Task SendMessagesAsync(string eventType, string message)
+        private HttpResponseMessage SendMessages(string eventType, string message, object entity)
         {
             try
             {
                 var client = new HttpClient();
                 client.DefaultRequestHeaders.Add("aeg-sas-key", _config.SharedAccessKey);
 
-                var gridEvent = new GridEvent
+                var list = new List<GridEvent<object>>()
+                { new GridEvent<object>
                 {
                     Subject = message,
                     EventType = eventType,
                     EventTime = DateTime.UtcNow,
-                    Id = Guid.NewGuid().ToString()
-                };
+                    Id = Guid.NewGuid().ToString(),
+                    Data = entity
+                }};
 
-                string json = JsonConvert.SerializeObject(gridEvent);
+                string json = JsonConvert.SerializeObject(list);
                 HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Post, _config.VeracodeTopicEndpoint)
                 {
                     Content = new StringContent(json, Encoding.UTF8, "application/json")
                 };
 
-                HttpResponseMessage response = await client.SendAsync(request);
+                var response = client.SendAsync(request).Result;
+                if (response.StatusCode != System.Net.HttpStatusCode.OK)
+                    throw new Exception(response.ReasonPhrase);
+
+                return response;
             }
             catch (Exception exception)
             {
                 Console.WriteLine($"{DateTime.Now} :: Exception: {exception.Message}");
+                throw exception;
             }
         }
     }
